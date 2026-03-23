@@ -10,7 +10,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/lib/hooks/use-i18n';
@@ -22,15 +21,10 @@ import {
   getASRSupportedLanguages,
 } from '@/lib/audio/constants';
 import type { TTSProviderId, ASRProviderId } from '@/lib/audio/types';
-import { Volume2, Mic, MicOff, Loader2, CheckCircle2, XCircle, Eye, EyeOff } from 'lucide-react';
+import { Volume2, Mic, MicOff, CheckCircle2, XCircle, Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import azureVoicesData from '@/lib/audio/azure.json';
 import { createLogger } from '@/lib/logger';
-import {
-  ensureVoicesLoaded,
-  isBrowserTTSAbortError,
-  playBrowserTTSPreview,
-} from '@/lib/audio/browser-tts-preview';
 
 const log = createLogger('AudioSettings');
 
@@ -76,11 +70,9 @@ export function AudioSettings({ onSave }: AudioSettingsProps = {}) {
   // TTS state
   const ttsProviderId = useSettingsStore((state) => state.ttsProviderId);
   const ttsVoice = useSettingsStore((state) => state.ttsVoice);
-  const ttsSpeed = useSettingsStore((state) => state.ttsSpeed);
   const ttsProvidersConfig = useSettingsStore((state) => state.ttsProvidersConfig);
   const setTTSProvider = useSettingsStore((state) => state.setTTSProvider);
   const setTTSVoice = useSettingsStore((state) => state.setTTSVoice);
-  const setTTSSpeed = useSettingsStore((state) => state.setTTSSpeed);
   const setTTSProviderConfig = useSettingsStore((state) => state.setTTSProviderConfig);
 
   // ASR state
@@ -104,16 +96,6 @@ export function AudioSettings({ onSave }: AudioSettingsProps = {}) {
   // Wrapped setters that trigger onSave callback
   const handleTTSProviderChange = (providerId: TTSProviderId) => {
     setTTSProvider(providerId);
-    onSave?.();
-  };
-
-  const handleTTSVoiceChange = (voice: string) => {
-    setTTSVoice(voice);
-    onSave?.();
-  };
-
-  const handleTTSSpeedChange = (speed: number) => {
-    setTTSSpeed(speed);
     onSave?.();
   };
 
@@ -151,12 +133,6 @@ export function AudioSettings({ onSave }: AudioSettingsProps = {}) {
   const [selectedLocale, setSelectedLocale] = useState<string>('all');
 
   // Test state
-  const [testingTTS, setTestingTTS] = useState(false);
-  const [testText, setTestText] = useState(t('settings.ttsTestTextDefault'));
-  const [ttsTestStatus, setTTSTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>(
-    'idle',
-  );
-  const [ttsTestMessage, setTTSTestMessage] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [asrResult, setASRResult] = useState('');
   const [asrTestStatus, setASRTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>(
@@ -171,13 +147,6 @@ export function AudioSettings({ onSave }: AudioSettingsProps = {}) {
 
   const asrProvider = ASR_PROVIDERS[asrProviderId] ?? ASR_PROVIDERS['openai-whisper'];
 
-  // Update test text when language changes (derived state pattern)
-  const [prevT, setPrevT] = useState(() => t);
-  if (t !== prevT) {
-    setPrevT(t);
-    setTestText(t('settings.ttsTestTextDefault'));
-  }
-
   // Reset locale filter when provider changes (derived state pattern)
   const [prevTTSProviderId, setPrevTTSProviderId] = useState(ttsProviderId);
   if (ttsProviderId !== prevTTSProviderId) {
@@ -187,7 +156,7 @@ export function AudioSettings({ onSave }: AudioSettingsProps = {}) {
     }
   }
 
-  const stopTTSPreview = useCallback((resetState = true) => {
+  const stopTTSPreview = useCallback(() => {
     ttsTestRequestIdRef.current += 1;
     browserPreviewCancelRef.current?.();
     browserPreviewCancelRef.current = null;
@@ -198,9 +167,6 @@ export function AudioSettings({ onSave }: AudioSettingsProps = {}) {
     if (audioUrlRef.current) {
       URL.revokeObjectURL(audioUrlRef.current);
       audioUrlRef.current = null;
-    }
-    if (resetState) {
-      setTestingTTS(false);
     }
   }, []);
 
@@ -223,9 +189,7 @@ export function AudioSettings({ onSave }: AudioSettingsProps = {}) {
   }, [selectedLocale, ttsProviderId, azureVoices, setTTSVoice]);
 
   useEffect(() => {
-    stopTTSPreview(false);
-    setTTSTestStatus('idle');
-    setTTSTestMessage('');
+    stopTTSPreview();
   }, [ttsProviderId, stopTTSPreview]);
 
   // Initialize and reset TTS voice when provider changes
@@ -276,7 +240,7 @@ export function AudioSettings({ onSave }: AudioSettingsProps = {}) {
 
   useEffect(() => {
     return () => {
-      stopTTSPreview(false);
+      stopTTSPreview();
     };
   }, [stopTTSPreview]);
 
@@ -288,123 +252,6 @@ export function AudioSettings({ onSave }: AudioSettingsProps = {}) {
     setASRTestMessage('');
     setASRResult('');
   }
-
-  // Test TTS
-  const handleTestTTS = async () => {
-    if (!testText.trim()) {
-      return;
-    }
-
-    const requestId = ttsTestRequestIdRef.current + 1;
-    ttsTestRequestIdRef.current = requestId;
-
-    setTestingTTS(true);
-    setTTSTestStatus('testing');
-    setTTSTestMessage('');
-
-    try {
-      if (ttsProviderId === 'browser-native-tts') {
-        if (!('speechSynthesis' in window)) {
-          setTTSTestStatus('error');
-          setTTSTestMessage(t('settings.browserTTSNotSupported'));
-          return;
-        }
-
-        const voices = await ensureVoicesLoaded();
-        if (ttsTestRequestIdRef.current !== requestId) {
-          return;
-        }
-        if (voices.length === 0) {
-          setTTSTestStatus('error');
-          setTTSTestMessage(t('settings.browserTTSNoVoices'));
-          return;
-        }
-
-        const controller = playBrowserTTSPreview({
-          text: testText,
-          voice: ttsVoice,
-          rate: ttsSpeed,
-          voices,
-        });
-        browserPreviewCancelRef.current = controller.cancel;
-        await controller.promise;
-
-        if (ttsTestRequestIdRef.current !== requestId) {
-          return;
-        }
-        setTTSTestStatus('success');
-        setTTSTestMessage(t('settings.ttsTestSuccess'));
-        return;
-      }
-
-      const requestBody: Record<string, unknown> = {
-        text: testText,
-        audioId: 'tts-test',
-        ttsProviderId,
-        ttsVoice: ttsVoice,
-        ttsSpeed: ttsSpeed,
-      };
-
-      const apiKeyValue = ttsProvidersConfig[ttsProviderId]?.apiKey;
-      if (apiKeyValue && apiKeyValue.trim()) {
-        requestBody.ttsApiKey = apiKeyValue;
-      }
-
-      const baseUrlValue = ttsProvidersConfig[ttsProviderId]?.baseUrl;
-      if (baseUrlValue && baseUrlValue.trim()) {
-        requestBody.ttsBaseUrl = baseUrlValue;
-      }
-
-      const response = await fetch('/api/generate/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-      });
-
-      const data = await response
-        .json()
-        .catch(() => ({ success: false, error: response.statusText }));
-      if (ttsTestRequestIdRef.current !== requestId) {
-        return;
-      }
-      if (response.ok && data.success) {
-        const binaryStr = atob(data.base64);
-        const bytes = new Uint8Array(binaryStr.length);
-        for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-        const audioBlob = new Blob([bytes], { type: `audio/${data.format}` });
-        if (audioUrlRef.current) {
-          URL.revokeObjectURL(audioUrlRef.current);
-        }
-        const audioUrl = URL.createObjectURL(audioBlob);
-        audioUrlRef.current = audioUrl;
-        if (audioRef.current) {
-          audioRef.current.src = audioUrl;
-          await audioRef.current.play();
-        }
-        setTTSTestStatus('success');
-        setTTSTestMessage(t('settings.ttsTestSuccess'));
-      } else {
-        setTTSTestStatus('error');
-        setTTSTestMessage(data.error || t('settings.ttsTestFailed'));
-      }
-    } catch (error) {
-      if (ttsTestRequestIdRef.current !== requestId || isBrowserTTSAbortError(error)) {
-        return;
-      }
-      log.error('TTS test failed:', error);
-      setTTSTestStatus('error');
-      setTTSTestMessage(
-        error instanceof Error && error.message
-          ? `${t('settings.ttsTestFailed')}: ${error.message}`
-          : t('settings.ttsTestFailed'),
-      );
-    } finally {
-      if (ttsTestRequestIdRef.current === requestId) {
-        browserPreviewCancelRef.current = null;
-        setTestingTTS(false);
-      }
-    }
-  };
 
   // Test ASR
   const handleToggleASRRecording = async () => {
@@ -572,6 +419,8 @@ export function AudioSettings({ onSave }: AudioSettingsProps = {}) {
             ttsEnabled ? 'opacity-100' : 'opacity-40 max-h-0 pointer-events-none',
           )}
         >
+          <p className="text-xs text-muted-foreground">{t('settings.ttsVoiceConfigHint')}</p>
+
           <div className="space-y-2">
             <Label className="text-sm">{t('settings.ttsProvider')}</Label>
             <Select
@@ -603,48 +452,32 @@ export function AudioSettings({ onSave }: AudioSettingsProps = {}) {
 
           {(ttsProvider.requiresApiKey ||
             ttsProvidersConfig[ttsProviderId]?.isServerConfigured) && (
-            <>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-sm">{t('settings.ttsApiKey')}</Label>
-                  <div className="relative">
-                    <Input
-                      type={showTTSApiKey ? 'text' : 'password'}
-                      placeholder={
-                        ttsProvidersConfig[ttsProviderId]?.isServerConfigured
-                          ? t('settings.optionalOverride')
-                          : t('settings.enterApiKey')
-                      }
-                      value={ttsProvidersConfig[ttsProviderId]?.apiKey || ''}
-                      onChange={(e) =>
-                        handleTTSProviderConfigChange(ttsProviderId, {
-                          apiKey: e.target.value,
-                        })
-                      }
-                      className="font-mono text-sm pr-10"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowTTSApiKey(!showTTSApiKey)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    >
-                      {showTTSApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-sm">{t('settings.ttsBaseUrl')}</Label>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-sm">{t('settings.ttsApiKey')}</Label>
+                <div className="relative">
                   <Input
-                    placeholder={ttsProvider.defaultBaseUrl || t('settings.enterCustomBaseUrl')}
-                    value={ttsProvidersConfig[ttsProviderId]?.baseUrl || ''}
+                    type={showTTSApiKey ? 'text' : 'password'}
+                    placeholder={
+                      ttsProvidersConfig[ttsProviderId]?.isServerConfigured
+                        ? t('settings.optionalOverride')
+                        : t('settings.enterApiKey')
+                    }
+                    value={ttsProvidersConfig[ttsProviderId]?.apiKey || ''}
                     onChange={(e) =>
                       handleTTSProviderConfigChange(ttsProviderId, {
-                        baseUrl: e.target.value,
+                        apiKey: e.target.value,
                       })
                     }
-                    className="text-sm"
+                    className="font-mono text-sm pr-10"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowTTSApiKey(!showTTSApiKey)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showTTSApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
               </div>
               {(() => {
@@ -823,79 +656,21 @@ export function AudioSettings({ onSave }: AudioSettingsProps = {}) {
               </Select>
             </div>
 
-            {ttsProvider.speedRange && (
               <div className="space-y-2">
-                <Label className="text-sm">{t('settings.ttsSpeed')}</Label>
-                <div className="flex items-center gap-3">
-                  <Slider
-                    value={[ttsSpeed]}
-                    onValueChange={(value) => handleTTSSpeedChange(value[0])}
-                    min={ttsProvider.speedRange.min}
-                    max={ttsProvider.speedRange.max}
-                    step={0.1}
-                    className="flex-1"
-                  />
-                  <span className="text-xs text-muted-foreground min-w-[3rem] text-right">
-                    {ttsSpeed.toFixed(1)}x
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Test TTS Section */}
-          <div className="space-y-2">
-            <Label className="text-sm">{t('settings.testTTS')}</Label>
-            <div className="flex gap-2">
-              <Input
-                placeholder={t('settings.ttsTestTextPlaceholder')}
-                value={testText}
-                onChange={(e) => setTestText(e.target.value)}
-                className="flex-1"
-              />
-              <Button
-                onClick={handleTestTTS}
-                disabled={
-                  testingTTS ||
-                  !testText.trim() ||
-                  (ttsProvider.requiresApiKey &&
-                    !ttsProvidersConfig[ttsProviderId]?.apiKey?.trim() &&
-                    !ttsProvidersConfig[ttsProviderId]?.isServerConfigured)
-                }
-                size="default"
-                className="gap-2 w-32"
-              >
-                {testingTTS ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Volume2 className="h-4 w-4" />
-                )}
-                {t('settings.testTTS')}
-              </Button>
-            </div>
-          </div>
-
-          {ttsTestMessage && (
-            <div
-              className={cn(
-                'rounded-lg p-3 text-sm overflow-hidden',
-                ttsTestStatus === 'success' &&
-                  'bg-green-50 text-green-700 border border-green-200 dark:bg-green-950/50 dark:text-green-400 dark:border-green-800',
-                ttsTestStatus === 'error' &&
-                  'bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/50 dark:text-red-400 dark:border-red-800',
-              )}
-            >
-              <div className="flex items-start gap-2 min-w-0">
-                {ttsTestStatus === 'success' && (
-                  <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" />
-                )}
-                {ttsTestStatus === 'error' && <XCircle className="h-4 w-4 mt-0.5 shrink-0" />}
-                <p className="flex-1 min-w-0 break-all">{ttsTestMessage}</p>
+                <Label className="text-sm">{t('settings.ttsBaseUrl')}</Label>
+                <Input
+                  placeholder={ttsProvider.defaultBaseUrl || t('settings.enterCustomBaseUrl')}
+                  value={ttsProvidersConfig[ttsProviderId]?.baseUrl || ''}
+                  onChange={(e) =>
+                    handleTTSProviderConfigChange(ttsProviderId, {
+                      baseUrl: e.target.value,
+                    })
+                  }
+                  className="text-sm"
+                />
               </div>
             </div>
           )}
-
-          <audio ref={audioRef} className="hidden" />
         </div>
       </div>
 
