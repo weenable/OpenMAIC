@@ -166,6 +166,8 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
                 break;
               case 'mimo-tts':
                 endpointPath = '/chat/completions';
+              case 'elevenlabs-tts':
+                endpointPath = '/text-to-speech';
                 break;
             }
             if (!endpointPath) return null;

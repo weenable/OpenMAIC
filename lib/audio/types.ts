@@ -84,9 +84,9 @@ export type TTSProviderId =
   | 'glm-tts'
   | 'qwen-tts'
   | 'mimo-tts'
+  | 'elevenlabs-tts'
   | 'browser-native-tts';
 // Add new TTS providers below (uncomment and modify):
-// | 'elevenlabs-tts'
 // | 'fish-audio-tts'
 // | 'cartesia-tts'
 // | 'playht-tts'

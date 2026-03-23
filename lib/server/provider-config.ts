@@ -49,6 +49,7 @@ const LLM_ENV_MAP: Record<string, string> = {
   GLM: 'glm',
   SILICONFLOW: 'siliconflow',
   DOUBAO: 'doubao',
+  GROK: 'grok',
 };
 
 const TTS_ENV_MAP: Record<string, string> = {
@@ -57,6 +58,7 @@ const TTS_ENV_MAP: Record<string, string> = {
   TTS_GLM: 'glm-tts',
   TTS_QWEN: 'qwen-tts',
   TTS_MIMO: 'mimo-tts',
+  TTS_ELEVENLABS: 'elevenlabs-tts',
 };
 
 const ASR_ENV_MAP: Record<string, string> = {
@@ -73,6 +75,7 @@ const IMAGE_ENV_MAP: Record<string, string> = {
   IMAGE_SEEDREAM: 'seedream',
   IMAGE_QWEN_IMAGE: 'qwen-image',
   IMAGE_NANO_BANANA: 'nano-banana',
+  IMAGE_GROK: 'grok-image',
 };
 
 const VIDEO_ENV_MAP: Record<string, string> = {
@@ -80,6 +83,7 @@ const VIDEO_ENV_MAP: Record<string, string> = {
   VIDEO_KLING: 'kling',
   VIDEO_VEO: 'veo',
   VIDEO_SORA: 'sora',
+  VIDEO_GROK: 'grok-video',
 };
 
 const WEB_SEARCH_ENV_MAP: Record<string, string> = {
